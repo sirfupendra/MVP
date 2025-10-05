@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decentralized AI Compute Marketplace MVP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Ethers.js for Web3 interaction -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.0/dist/ethers.umd.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #f7f7f7; }
+        .card { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); }
+        .btn-primary { transition: all 0.15s ease-in-out; }
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Firebase SDKs for environment setup -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global variables provided by the Canvas environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const __initial_auth_token = typeof window.__initial_auth_token !== 'undefined' ? window.__initial_auth_token : undefined;
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        let currentUserId = 'anonymous';
+
+        // Authentication and User ID Setup
+        async function setupAuth() {
+            try {
+                if (__initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Firebase Auth Error:", error);
+            }
+        }
+        
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                currentUserId = user.uid;
+                document.getElementById('user-id-display').textContent = `User ID: ${currentUserId}`;
+                console.log("Firebase initialized. User ID:", currentUserId);
+            }
+        });
+        
+        setupAuth();
+    </script>
+    
+    <div class="w-full max-w-4xl bg-white p-8 rounded-xl card space-y-8">
+        <h1 class="text-3xl font-bold text-gray-800 text-center border-b pb-4">
+            Decentralized AI Compute MVP
+        </h1>
+        <p id="user-id-display" class="text-xs text-gray-500 text-center truncate mb-4">
+            Loading User ID...
+        </p>
+
+        <!-- Status and Connection Section -->
+        <div class="bg-indigo-50 p-4 rounded-lg flex justify-between items-center">
+            <p id="wallet-status" class="font-semibold text-indigo-700">Wallet Status: Disconnected</p>
+            <button id="connect-btn" class="px-4 py-2 bg-indigo-600 text-white font-semibold rounded-lg btn-primary">
+                Connect Wallet
+            </button>
+        </div>
+
+        <div id="contract-interaction" class="space-y-6 hidden">
+            <div class="border-t pt-6">
+                <p class="text-lg font-semibold text-gray-700 mb-4">1. Post a New Job (Client Role)</p>
+                <div class="space-y-4">
+                    <input type="text" id="job-hash" placeholder="IPFS Hash of Job Files (e.g., Qm...)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    <input type="number" id="job-price" placeholder="Price (in ETH, min 0.001)" step="0.0001" min="0.001" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    <button id="post-job-btn" class="w-full py-3 bg-green-600 text-white font-semibold rounded-lg btn-primary">
+                        Post Job & Stake Funds
+                    </button>
+                </div>
+            </div>
+
+            <div class="border-t pt-6">
+                <p class="text-lg font-semibold text-gray-700 mb-4">2. Manage Job (Provider/Client Role)</p>
+                <div class="space-y-4">
+                    <input type="number" id="job-id-manage" placeholder="Enter Job ID" min="1" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500">
+                    
+                    <button id="accept-job-btn" class="w-1/2 py-3 bg-blue-600 text-white font-semibold rounded-lg btn-primary">
+                        Accept Job (Provider)
+                    </button>
+                    
+                    <input type="text" id="result-hash" placeholder="IPFS Hash of Result (Provider upload)" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 mt-4">
+                    <button id="complete-job-btn" class="w-full py-3 bg-yellow-600 text-gray-800 font-semibold rounded-lg btn-primary">
+                        Mark Job as Complete (Provider)
+                    </button>
+
+                    <button id="pay-job-btn" class="w-full py-3 bg-red-600 text-white font-semibold rounded-lg btn-primary">
+                        Confirm Result & Pay (Client)
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- General Message Display -->
+        <div id="message-box" class="mt-6 p-3 bg-gray-100 border border-gray-300 rounded-lg text-sm text-gray-700 hidden"></div>
+    </div>
+
+    <script>
+        // --- Ethers.js and Contract Configuration ---
+        const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS"; // <-- REPLACE THIS
+        const ABI = [
+            // Minimal ABI for the MVP functions
+            {"inputs":[{"internalType":"string","name":"_jobHash","type":"string"}],"name":"postJob","outputs":[],"stateMutability":"payable","type":"function"},
+            {"inputs":[{"internalType":"uint256","name":"_jobId","type":"uint256"}],"name":"acceptJob","outputs":[],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"uint256","name":"_jobId","type":"uint256"},{"internalType":"string","name":"_resultHash","type":"string"}],"name":"completeJob","outputs":[],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"uint256","name":"_jobId","type":"uint256"}],"name":"confirmAndPay","outputs":[],"stateMutability":"nonpayable","type":"function"},
+            {"stateMutability":"payable","type":"receive"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"jobId","type":"uint256"},{"indexed":false,"internalType":"address","name":"client","type":"address"},{"indexed":false,"internalType":"uint256","name":"price","type":"uint256"},{"indexed":false,"internalType":"string","name":"jobHash","type":"string"}],"name":"JobPosted","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"jobId","type":"uint256"},{"indexed":false,"internalType":"address","name":"provider","type":"address"}],"name":"JobAccepted","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"jobId","type":"uint256"},{"indexed":false,"internalType":"string","name":"resultHash","type":"string"}],"name":"JobCompleted","type":"event"},
+            {"anonymous":false,"inputs":[{"indexed":true,"internalType":"uint256","name":"jobId","type":"uint256"}],"name":"JobPaid","type":"event"},
+        ];
+
+        let provider, signer, contract;
+
+        function showMessage(message, isError = false) {
+            const box = document.getElementById('message-box');
+            box.textContent = message;
+            box.className = `mt-6 p-4 rounded-lg text-sm ${isError ? 'bg-red-100 border border-red-400 text-red-700' : 'bg-green-100 border border-green-400 text-green-700'}`;
+            box.style.display = 'block';
+            setTimeout(() => { box.style.display = 'none'; }, 8000);
+        }
+
+        async function connectWallet() {
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                    await provider.send("eth_requestAccounts", []);
+                    signer = provider.getSigner();
+                    contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+
+                    const address = await signer.getAddress();
+                    document.getElementById('wallet-status').textContent = `Wallet: ${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+                    document.getElementById('connect-btn').textContent = 'Connected';
+                    document.getElementById('connect-btn').disabled = true;
+                    document.getElementById('contract-interaction').classList.remove('hidden');
+                    showMessage("Wallet connected successfully!", false);
+                } catch (error) {
+                    console.error("Wallet connection failed:", error);
+                    showMessage("Failed to connect wallet. Ensure MetaMask is installed and unlocked.", true);
+                }
+            } else {
+                showMessage("MetaMask or a Web3 provider is not detected.", true);
+            }
+        }
+
+        async function postJob() {
+            if (!contract) return showMessage("Please connect your wallet first.", true);
+
+            const jobHash = document.getElementById('job-hash').value;
+            const jobPriceEth = document.getElementById('job-price').value;
+
+            if (!jobHash || !jobPriceEth) return showMessage("Job Hash and Price are required.", true);
+
+            try {
+                const priceWei = ethers.utils.parseEther(jobPriceEth);
+                
+                showMessage("Transaction pending: Posting job...", false);
+                const tx = await contract.postJob(jobHash, { value: priceWei });
+                
+                const receipt = await tx.wait();
+                
+                // Try to extract the job ID from the event (simple approach)
+                const event = receipt.events?.find(e => e.event === 'JobPosted');
+                const jobId = event?.args?.jobId.toString();
+
+                showMessage(`Job Posted! TX Hash: ${tx.hash.substring(0, 10)}... | Job ID: ${jobId || 'N/A'}. Await provider acceptance.`);
+            } catch (error) {
+                console.error("Post Job Error:", error);
+                showMessage(`Transaction failed: ${error.message.substring(0, 100)}...`, true);
+            }
+        }
+
+        async function acceptJob() {
+            if (!contract) return showMessage("Please connect your wallet first.", true);
+            const jobId = document.getElementById('job-id-manage').value;
+            if (!jobId) return showMessage("Enter a Job ID to accept.", true);
+
+            try {
+                showMessage(`Transaction pending: Accepting Job ID ${jobId}... (Provider role)`, false);
+                const tx = await contract.acceptJob(jobId);
+                await tx.wait();
+                showMessage(`Job ${jobId} accepted! You are now the provider. Start the compute task.`);
+            } catch (error) {
+                console.error("Accept Job Error:", error);
+                showMessage(`Acceptance failed. Check if job is pending or you are already assigned. ${error.message.substring(0, 100)}...`, true);
+            }
+        }
+
+        async function completeJob() {
+            if (!contract) return showMessage("Please connect your wallet first.", true);
+            const jobId = document.getElementById('job-id-manage').value;
+            const resultHash = document.getElementById('result-hash').value;
+            if (!jobId || !resultHash) return showMessage("Enter Job ID and Result Hash.", true);
+
+            try {
+                showMessage(`Transaction pending: Marking Job ID ${jobId} as complete... (Provider role)`, false);
+                const tx = await contract.completeJob(jobId, resultHash);
+                await tx.wait();
+                showMessage(`Job ${jobId} completed! Result Hash: ${resultHash}. Awaiting client confirmation.`);
+            } catch (error) {
+                console.error("Complete Job Error:", error);
+                showMessage(`Completion failed. Check if you are the provider. ${error.message.substring(0, 100)}...`, true);
+            }
+        }
+
+        async function payJob() {
+            if (!contract) return showMessage("Please connect your wallet first.", true);
+            const jobId = document.getElementById('job-id-manage').value;
+            if (!jobId) return showMessage("Enter a Job ID to pay.", true);
+
+            try {
+                showMessage(`Transaction pending: Confirming and Paying Job ID ${jobId}... (Client role)`, false);
+                const tx = await contract.confirmAndPay(jobId);
+                await tx.wait();
+                showMessage(`Job ${jobId} successfully paid! Funds released to provider and commission collected.`);
+            } catch (error) {
+                console.error("Pay Job Error:", error);
+                showMessage(`Payment failed. Check if job is complete or you are the client. ${error.message.substring(0, 100)}...`, true);
+            }
+        }
+
+
+        // Event Listeners
+        document.getElementById('connect-btn').addEventListener('click', connectWallet);
+        document.getElementById('post-job-btn').addEventListener('click', postJob);
+        document.getElementById('accept-job-btn').addEventListener('click', acceptJob);
+        document.getElementById('complete-job-btn').addEventListener('click', completeJob);
+        document.getElementById('pay-job-btn').addEventListener('click', payJob);
+
+        // Initial setup prompt
+        window.onload = () => {
+             showMessage(`Welcome to the MVP! Please: 1. Replace 'YOUR_DEPLOYED_CONTRACT_ADDRESS' in the code. 2. Connect your wallet. 3. Ensure you have test ETH.`, false);
+        }
+
+    </script>
+</body>
+</html>
