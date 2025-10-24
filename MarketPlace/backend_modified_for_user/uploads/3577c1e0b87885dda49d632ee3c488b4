@@ -1,0 +1,21 @@
+# ----------------------------
+# Auto-generated Dockerfile
+# ----------------------------
+
+# Use a lightweight Python image
+FROM python:3.10-slim
+
+# Set working directory
+WORKDIR /app
+
+# Copy dependency file
+COPY requirements.txt .
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy the user uploaded Python script
+COPY abfad5290217d91bb01fea3463106f02 .
+
+# Set default command to run the uploaded script
+CMD ["python", "abfad5290217d91bb01fea3463106f02"]
